@@ -328,40 +328,61 @@ impl Thread {
     }
 
     fn segment(&self) -> Result<Vec<u8>> {
-        for _ in 0..self.retries {
+        for attempt in 0..=self.retries {
             let response = match self.request.try_clone().unwrap().send() {
                 Ok(response) => response,
                 Err(error) => {
-                    // TODO - Only print this info on verbose logging
-                    self.pb
-                        .lock()
-                        .unwrap()
-                        .write(check_reqwest_error(&error)?)?;
-                    continue;
+                    if attempt < self.retries {
+                        // TODO - Only print this info on verbose logging
+                        self.pb
+                            .lock()
+                            .unwrap()
+                            .write(check_reqwest_error(&error)?)?;
+                        continue;
+                    } else {
+                        return Err(error.into());
+                    }
                 }
             };
 
             let status = response.status();
 
             if status.is_client_error() || status.is_server_error() {
-                bail!("failed to fetch segments.");
+                if attempt < self.retries {
+                    // Retry on server errors as well
+                    continue;
+                } else {
+                    bail!("failed to fetch segments.");
+                }
             }
 
-            let data = response.bytes()?.to_vec();
-            let elapsed_time = self.timer.elapsed().as_secs() as usize;
+            match response.bytes() {
+                Ok(data) => {
+                    let data = data.to_vec();
+                    let elapsed_time = self.timer.elapsed().as_secs() as usize;
 
-            if elapsed_time != 0 {
-                let stored = self.merger.lock().unwrap().stored() + data.len();
-                self.pb.lock().unwrap().replace(
-                    12,
-                    Column::Text(format!(
-                        "[yellow]{}/s",
-                        utils::format_bytes(stored / elapsed_time, 2).2
-                    )),
-                );
+                    if elapsed_time != 0 {
+                        let stored = self.merger.lock().unwrap().stored() + data.len();
+                        self.pb.lock().unwrap().replace(
+                            12,
+                            Column::Text(format!(
+                                "[yellow]{}/s",
+                                utils::format_bytes(stored / elapsed_time, 2).2
+                            )),
+                        );
+                    }
+
+                    return Ok(data);
+                }
+                Err(error) => {
+                    if attempt < self.retries {
+                        // Retry on decoding errors
+                        continue;
+                    } else {
+                        return Err(error.into());
+                    }
+                }
             }
-
-            return Ok(data);
         }
 
         bail!("reached max retries to download a segment.");
