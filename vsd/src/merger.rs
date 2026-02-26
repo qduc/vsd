@@ -30,13 +30,12 @@ impl Merger {
         let mut pos = 0;
         let mut flushed_bytes = 0;
 
-        if state_path.exists() {
-            if let Ok(data) = fs::read(&state_path)
-                && data.len() == 16
-            {
-                pos = u64::from_be_bytes(data[0..8].try_into().unwrap()) as usize;
-                flushed_bytes = u64::from_be_bytes(data[8..16].try_into().unwrap()) as usize;
-            }
+        if state_path.exists()
+            && let Ok(data) = fs::read(&state_path)
+            && data.len() == 16
+        {
+            pos = u64::from_be_bytes(data[0..8].try_into().unwrap()) as usize;
+            flushed_bytes = u64::from_be_bytes(data[8..16].try_into().unwrap()) as usize;
         }
 
         let file = if pos > 0 {
