@@ -63,15 +63,23 @@ pub fn ffmpeg(output: Option<&PathBuf>, subs_codec: &str, temp_files: &[Stream])
                 .iter()
                 .filter(|x| x.media_type == MediaType::Subtitles),
         )
+        .chain(
+            temp_files
+                .iter()
+                .filter(|x| x.media_type == MediaType::Undefined),
+        )
         .collect::<Vec<_>>();
 
     let mut args = Vec::new();
 
     for temp_file in &temp_files {
+        if temp_file.path.extension() == Some(OsStr::new("ts")) {
+            args.extend_from_slice(&["-f".to_owned(), "mpegts".to_owned()]);
+        }
         args.extend_from_slice(&["-i".to_owned(), temp_file.path.to_string_lossy().into()]);
     }
 
-    if args.len() == 2 {
+    if temp_files.len() == 1 {
         // Working on single stream
         args.extend_from_slice(&[
             "-c:v".to_owned(),
