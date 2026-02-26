@@ -14,6 +14,7 @@ use reqwest::{
 };
 use std::{
     collections::{HashMap, VecDeque},
+    fs,
     path::PathBuf,
     sync::{Arc, Mutex},
     time::Instant,
@@ -74,6 +75,32 @@ pub fn download_streams(
 
         let temp_file = stream.path(directory, stream.extension());
 
+        if temp_file.exists() {
+            pb.lock().unwrap().write(format!(
+                "   {} {} already exists, skipping download",
+                "Skipping".colorize("bold yellow"),
+                temp_file.to_string_lossy(),
+            ))?;
+
+            temp_files.push(Stream {
+                language: stream.language.clone(),
+                media_type: stream.media_type.clone(),
+                path: temp_file.clone(),
+            });
+
+            let total_segments = stream.segments.len();
+            let mut pb_lock = pb.lock().unwrap();
+            pb_lock.pb.total -= total_segments;
+            pb_lock.update(0)?;
+
+            let _ = estimated_bytes.pop_front();
+            downloaded_bytes += fs::metadata(&temp_file)?.len() as usize;
+            continue;
+        }
+
+        let extension = stream.extension().to_string_lossy();
+        let part_file = temp_file.with_extension(format!("{}.part", extension));
+
         temp_files.push(Stream {
             language: stream.language.clone(),
             media_type: stream.media_type.clone(),
@@ -100,8 +127,9 @@ pub fn download_streams(
             query,
             retries,
             stream,
-            &temp_file,
+            &part_file,
         )?;
+        fs::rename(part_file, &temp_file)?;
     }
 
     eprintln!();
@@ -124,12 +152,27 @@ fn download_stream(
     stream: MediaPlaylist,
     temp_file: &PathBuf,
 ) -> Result<()> {
-    let mut init_seg = None;
+    let mut initial_downloaded_bytes = 0;
     let merger = Arc::new(Mutex::new(if no_merge {
         Merger::new_directory(stream.segments.len(), temp_file)?
     } else {
         Merger::new_file(stream.segments.len(), temp_file)?
     }));
+
+    let resumed_pos = merger.lock().unwrap().position();
+
+    if resumed_pos > 0 {
+        initial_downloaded_bytes = merger.lock().unwrap().stored();
+        pb.lock().unwrap().write(format!(
+            "   {} {} [{} segments]",
+            "Resuming".colorize("bold yellow"),
+            temp_file.to_string_lossy(),
+            resumed_pos,
+        ))?;
+        pb.lock().unwrap().update(resumed_pos)?;
+    }
+
+    let mut init_seg = None;
     let mut increment_iv = false;
     let base_url = base_url
         .clone()
@@ -225,6 +268,13 @@ fn download_stream(
             }
         }
 
+        if i < resumed_pos {
+            if stream_decrypter.is_none() {
+                init_seg = None;
+            }
+            continue;
+        }
+
         let url = base_url.join(&segment.uri)?;
         let mut request = client.get(url).query(query);
 
@@ -269,7 +319,7 @@ fn download_stream(
         bail!("failed to download stream.",);
     }
 
-    *downloaded_bytes += merger.stored();
+    *downloaded_bytes += merger.stored() - initial_downloaded_bytes;
 
     pb.lock().unwrap().write(format!(
         " {} stream successfully",
