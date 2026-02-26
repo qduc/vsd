@@ -9,7 +9,7 @@ keywords = ["m3u8", "mpd"]
 license = "MIT OR Apache-2.0"
 name = "vsd"
 repository = "https://github.com/clitic/vsd/tree/main/vsd"
-version = "0.4.4"
+version = "0.4.5"
 readme = "README.md"
 
 [dependencies]
