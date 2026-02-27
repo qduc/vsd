@@ -39,19 +39,14 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            use_cross: false
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-24.04-arm
-            use_cross: false
           - target: x86_64-apple-darwin
             os: macos-26-intel
-            use_cross: false
           - target: aarch64-apple-darwin
             os: macos-latest
-            use_cross: false
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            use_cross: false
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -66,16 +61,7 @@ jobs:
         with:
           version: "30.1"
 
-      - name: Install cross
-        if: matrix.use_cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
-
-      - name: Build (cross)
-        if: matrix.use_cross
-        run: cross build -p vsd --release --no-default-features --features browser,rustls-tls-webpki-roots --target ${{ matrix.target }}
-
-      - name: Build (cargo)
-        if: "!matrix.use_cross"
+      - name: Build
         run: cargo build -p vsd --release --no-default-features --features browser,rustls-tls-webpki-roots --target ${{ matrix.target }}
 
       - name: Package (unix)
